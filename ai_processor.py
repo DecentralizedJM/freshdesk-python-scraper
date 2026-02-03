@@ -78,9 +78,39 @@ class TicketAnalyzer:
         return text[:max_chars] + "..." if len(text) > max_chars else text
 
     def _analyze_gemini(self, text: str, intent: str) -> Tuple[bool, str]:
-        prompt = self._construct_prompt(text, intent)
+        # Optimization: Use Gemini 1.5's native JSON mode and System Instructions
+        system_instruction = f"""
+        You are an intelligent ticket classification agent.
+        Your goal is to determine if a customer support ticket matches the user's search intent.
+        
+        USER INTENT: "{intent}"
+        
+        RULES:
+        1. "relevant": true if the ticket discusses the intent (even vaguely). false if completely unrelated.
+        2. "summary": A concise 1-sentence summary of the user's specific problem/request in the ticket.
+        """
+        
+        # Configure model with system instruction
+        model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=system_instruction
+        )
+        
+        prompt = f"""
+        Analyze this ticket content:
+        ---
+        {self._truncate_text(text)}
+        ---
+        
+        Return JSON only.
+        """
+        
         try:
-            response = self.model_client.generate_content(prompt)
+            # Force JSON response mime type - Gemini Specific Optimization
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
             return self._parse_json_response(response.text)
         except Exception as e:
             logger.error(f"Gemini Error: {e}")

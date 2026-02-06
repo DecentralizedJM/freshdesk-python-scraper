@@ -18,15 +18,26 @@ class FreshdeskClient:
             "Content-Type": "application/json"
         })
 
-    def _list_tickets(self, updated_since: str = None, max_pages: int = 50) -> List[Dict[str, Any]]:
-        """Fetch tickets via list endpoint (GET /tickets). Works when search API fails."""
+    def _list_tickets(
+        self,
+        updated_since: str = None,
+        max_pages: int = 150,
+        order_by: str = None,
+        order_type: str = None,
+        stop_after_date: str = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch tickets via list endpoint (GET /tickets)."""
         all_tickets = []
         page = 1
         url = f"{self.base_url}/tickets"
         while page <= max_pages:
-            params = {"page": page, "per_page": 100}
+            params = {"page": page, "per_page": 100, "include": "description"}
             if updated_since:
                 params["updated_since"] = updated_since
+            if order_by:
+                params["order_by"] = order_by
+            if order_type:
+                params["order_type"] = order_type
             response = self.session.get(url, params=params)
             if response.status_code == 429:
                 print("Rate limit exceeded. Waiting 60 seconds...")
@@ -38,7 +49,13 @@ class FreshdeskClient:
             tickets = response.json()
             if not tickets:
                 break
-            all_tickets.extend(tickets)
+            for t in tickets:
+                if stop_after_date:
+                    created = (t.get("created_at") or "")[:10]
+                    if created and created > stop_after_date:
+                        print(f"Fetched {len(all_tickets)} tickets (reached end_date), stopping.")
+                        return all_tickets
+                all_tickets.append(t)
             print(f"Fetched {len(tickets)} tickets from page {page}...")
             if len(tickets) < 100:
                 break
@@ -54,9 +71,12 @@ class FreshdeskClient:
         print(f"Searching for query: '{query}' with Date Range: {start_date} to {end_date}")
         keyword = (query or "").strip()
 
-        # Use list endpoint - updated_since gets recent tickets (ISO format)
+        # Use list endpoint - updated_since + order for date ranges
         from datetime import datetime, timedelta, timezone
         updated_since = None
+        order_by = None
+        order_type = None
+        stop_after_date = None
         if start_date:
             try:
                 d = datetime.strptime(start_date, "%Y-%m-%d")
@@ -66,9 +86,19 @@ class FreshdeskClient:
         elif end_date:
             updated_since = "2020-01-01T00:00:00Z"
         else:
-            updated_since = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            updated_since = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if end_date:
+            stop_after_date = end_date
+        if start_date or end_date:
+            order_by = "created_at"
+            order_type = "asc"
 
-        tickets = self._list_tickets(updated_since=updated_since)
+        tickets = self._list_tickets(
+            updated_since=updated_since,
+            order_by=order_by,
+            order_type=order_type,
+            stop_after_date=stop_after_date,
+        )
 
         # Filter by keyword
         if keyword:
@@ -76,7 +106,7 @@ class FreshdeskClient:
             tickets = [
                 t for t in tickets
                 if kw_lower in (t.get("subject") or "").lower()
-                or kw_lower in (str(t.get("description") or "")).lower()
+                or kw_lower in (str(t.get("description") or t.get("description_text") or "")).lower()
             ]
             print(f"Client-side filter: {len(tickets)} tickets match keyword.")
 

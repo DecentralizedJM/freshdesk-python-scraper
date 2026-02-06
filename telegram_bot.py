@@ -8,11 +8,13 @@ from freshdesk_client import FreshdeskClient
 from report_generator import generate_report
 from ai_processor import TicketAnalyzer
 
-# Enable logging
+# Enable logging; suppress httpx/httplib INFO so token isn't logged in request URLs
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # State Definitions
@@ -158,5 +160,5 @@ if __name__ == '__main__':
     
     application.add_handler(conv_handler)
     
-    print("Bot is polling...")
+    print("Bot is polling (use webhooks in production for lower latency)...")
     application.run_polling()

@@ -18,82 +18,83 @@ class FreshdeskClient:
             "Content-Type": "application/json"
         })
 
-    def _fetch_by_query(self, final_query: str) -> List[Dict[str, Any]]:
-        """Fetch tickets by a single query string; used internally."""
+    def _list_tickets(self, updated_since: str = None, max_pages: int = 50) -> List[Dict[str, Any]]:
+        """Fetch tickets via list endpoint (GET /tickets). Works when search API fails."""
         all_tickets = []
         page = 1
-        url = f"{self.base_url}/search/tickets"
-        while True:
-            params = {"query": final_query, "page": page}
+        url = f"{self.base_url}/tickets"
+        while page <= max_pages:
+            params = {"page": page, "per_page": 100}
+            if updated_since:
+                params["updated_since"] = updated_since
             response = self.session.get(url, params=params)
             if response.status_code == 429:
                 print("Rate limit exceeded. Waiting 60 seconds...")
                 time.sleep(60)
                 continue
             if response.status_code != 200:
-                print(f"Error fetching page {page} query='{final_query}': {response.text}")
-                return None  # signal failure to caller
-            data = response.json()
-            results = data.get("results", [])
-            if not results:
+                print(f"Error listing tickets page {page}: {response.text}")
+                return []
+            tickets = response.json()
+            if not tickets:
                 break
-            all_tickets.extend(results)
-            print(f"Fetched {len(results)} tickets from page {page}...")
-            if len(results) < 30:
+            all_tickets.extend(tickets)
+            print(f"Fetched {len(tickets)} tickets from page {page}...")
+            if len(tickets) < 100:
                 break
             page += 1
-            if page > 100:
-                print("Configuration safety limit: stopping after 100 pages.")
-                break
         return all_tickets
 
     def search_tickets(self, query: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
         """
         Searches for tickets using a keyword and optional date range.
-        Freshdesk requires query format: field:value [OPERATOR field:value ...]
-        (e.g. subject:'API' AND created_at:>'2023-01-01'). If subject is not
-        supported, we fall back to date-only + client-side keyword filter.
+        Uses list tickets API + client-side filtering; the search/tickets query format
+        is not reliably supported across Freshdesk instances.
         """
         print(f"Searching for query: '{query}' with Date Range: {start_date} to {end_date}")
         keyword = (query or "").strip()
-        query_escaped = keyword.replace("'", "\\'")
 
-        # Build query: subject:'keyword' and optional date filters
-        final_query = f"subject:'{query_escaped}'" if query_escaped else ""
+        # Use list endpoint - updated_since gets recent tickets (ISO format)
+        from datetime import datetime, timedelta, timezone
+        updated_since = None
         if start_date:
-            final_query += (" AND " if final_query else "") + f"created_at:>'{start_date}'"
-        if end_date:
-            final_query += (" AND " if final_query else "") + f"created_at:<'{end_date}'"
+            try:
+                d = datetime.strptime(start_date, "%Y-%m-%d")
+                updated_since = d.strftime("%Y-%m-%dT00:00:00Z")
+            except ValueError:
+                updated_since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        elif end_date:
+            updated_since = "2020-01-01T00:00:00Z"
+        else:
+            updated_since = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # If no keyword and no dates, we need at least one condition; use a broad status filter
-        if not final_query:
-            final_query = "status:>0"  # any non-deleted
+        tickets = self._list_tickets(updated_since=updated_since)
 
-        tickets = self._fetch_by_query(final_query)
-        if tickets is not None:
-            return tickets
+        # Filter by keyword
+        if keyword:
+            kw_lower = keyword.lower()
+            tickets = [
+                t for t in tickets
+                if kw_lower in (t.get("subject") or "").lower()
+                or kw_lower in (str(t.get("description") or "")).lower()
+            ]
+            print(f"Client-side filter: {len(tickets)} tickets match keyword.")
 
-        # Fallback: subject may not be supported on this instance; fetch by date only and filter
-        print("Query with subject failed; retrying with date-only and filtering by keyword client-side.")
-        fallback_query_parts = []
-        if start_date:
-            fallback_query_parts.append(f"created_at:>'{start_date}'")
-        if end_date:
-            fallback_query_parts.append(f"created_at:<'{end_date}'")
-        fallback_query = " AND ".join(fallback_query_parts) if fallback_query_parts else "status:>0"
-        tickets = self._fetch_by_query(fallback_query)
-        if tickets is None:
-            return []
+        # Filter by date range
+        if start_date or end_date:
+            filtered = []
+            for t in tickets:
+                created = (t.get("created_at") or "")[:10]
+                if not created:
+                    continue
+                if start_date and created < start_date:
+                    continue
+                if end_date and created > end_date:
+                    continue
+                filtered.append(t)
+            tickets = filtered
 
-        if not keyword:
-            return tickets
-        kw_lower = keyword.lower()
-        filtered = [
-            t for t in tickets
-            if kw_lower in (t.get("subject") or "").lower() or kw_lower in (t.get("description") or "").lower()
-        ]
-        print(f"Client-side filter: {len(filtered)} of {len(tickets)} tickets match keyword.")
-        return filtered
+        return tickets
 
     def get_ticket_details(self, ticket_id: int) -> Dict[str, Any]:
         """

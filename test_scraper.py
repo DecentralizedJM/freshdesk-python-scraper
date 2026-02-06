@@ -12,27 +12,18 @@ class TestFreshdeskScraper(unittest.TestCase):
 
     @patch('requests.Session.get')
     def test_search_pagination(self, mock_get):
-        # Mock response for Page 1 (30 results)
-        page1_data = {
-            "results": [{"id": i, "subject": f"Ticket {i}"} for i in range(1, 31)]
-        }
-        # Mock response for Page 2 (5 results)
-        page2_data = {
-            "results": [{"id": i, "subject": f"Ticket {i}"} for i in range(31, 36)]
-        }
-        
-        # Configure side effect for successive calls
+        # List API returns array directly (not {"results": [...]})
+        page1_data = [{"id": i, "subject": f"Ticket {i} test", "created_at": "2024-01-01T00:00:00Z"} for i in range(1, 101)]
+        page2_data = [{"id": i, "subject": f"Ticket {i} test", "created_at": "2024-01-01T00:00:00Z"} for i in range(101, 106)]
         mock_get.side_effect = [
-            MagicMock(status_code=200, json=lambda: page1_data), # Page 1
-            MagicMock(status_code=200, json=lambda: page2_data)  # Page 2
+            MagicMock(status_code=200, json=lambda: page1_data),
+            MagicMock(status_code=200, json=lambda: page2_data),
         ]
-
         tickets = self.client.search_tickets("test")
-        
-        self.assertEqual(len(tickets), 35)
+        self.assertEqual(len(tickets), 105)
         self.assertEqual(tickets[0]['id'], 1)
-        self.assertEqual(tickets[-1]['id'], 35)
-        print("\nTest Search Pagination: SUCCESS (Found 35 tickets across 2 pages)")
+        self.assertEqual(tickets[-1]['id'], 105)
+        print("\nTest Search Pagination: SUCCESS (Found 105 tickets across 2 pages)")
 
     @patch('requests.Session.get')
     def test_get_ticket_details(self, mock_get):

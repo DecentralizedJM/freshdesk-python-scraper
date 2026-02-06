@@ -60,6 +60,7 @@ class FreshdeskClient:
             if len(tickets) < 100:
                 break
             page += 1
+            time.sleep(0.5)
         return all_tickets
 
     def search_tickets(self, query: str, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
@@ -92,9 +93,13 @@ class FreshdeskClient:
         if start_date or end_date:
             order_by = "created_at"
             order_type = "asc"
+            max_pages = 150
+        else:
+            max_pages = 50
 
         tickets = self._list_tickets(
             updated_since=updated_since,
+            max_pages=max_pages,
             order_by=order_by,
             order_type=order_type,
             stop_after_date=stop_after_date,

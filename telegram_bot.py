@@ -22,10 +22,8 @@ KEYWORD, DATES, INTENT = range(3)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Hi! I am your Freshdesk Bot.\n\n"
-        "I can help you scrape tickets and analyze them with AI.\n"
-        "Let's start! \n\n"
-        "📥 **Enter the Keyword** you want to search for:"
+        "Hi! I'm your Freshdesk scraper. I search tickets and run AI analysis on them.\n\n"
+        "What keyword do you want to search for? (e.g. refund, login, API)"
     )
     return KEYWORD
 
@@ -34,10 +32,8 @@ async def keyword_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['keyword'] = user_input
     
     await update.message.reply_text(
-        f"✅ Keyword set to: '{user_input}'\n\n"
-        "📅 **Enter Date Range** (YYYY-MM-DD to YYYY-MM-DD)\n"
-        "Example: `2023-01-01 to 2023-02-01`\n"
-        "Or type 'skip' to search all time."
+        f"Got it: {user_input}\n\n"
+        "Date range? Use YYYY-MM-DD to YYYY-MM-DD (e.g. 2023-01-01 to 2023-02-01) or type skip for all time."
     )
     return DATES
 
@@ -52,16 +48,14 @@ async def dates_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             start_date = parts[0].strip()
             end_date = parts[1].strip()
         else:
-            await update.message.reply_text("⚠️ Invalid format. Please use 'YYYY-MM-DD to YYYY-MM-DD' or type 'skip'. Try again:")
+            await update.message.reply_text("Invalid format. Use YYYY-MM-DD to YYYY-MM-DD or type skip.")
             return DATES
 
     context.user_data['start_date'] = start_date
     context.user_data['end_date'] = end_date
     
     await update.message.reply_text(
-        "🧠 **Enter User Intent** for AI Analysis.\n"
-        "Example: 'Find users asking about login bugs'\n"
-        "Or type 'skip' for no specific intent."
+        "What should the AI look for? Describe the type of tickets (e.g. users asking about login bugs, refund requests). Type skip to analyze all."
     )
     return INTENT
 
@@ -72,9 +66,7 @@ async def intent_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Notify user process has started
     await update.message.reply_text(
-        "⏳ **Processing...**\n"
-        "Searching tickets, fetching conversations, and running AI analysis.\n"
-        "This may take a minute. Please wait."
+        "Searching and analyzing... This may take a minute."
     )
     
     # Run the blocking scraping logic in a separate thread/executor to not block the bot
@@ -87,19 +79,19 @@ async def intent_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if file_path:
             await update.message.reply_document(document=open(file_path, 'rb'), filename=os.path.basename(file_path))
-            await update.message.reply_text("✅ Done! Here is your report.")
+            await update.message.reply_text("Done. Here's your report.")
             os.remove(file_path) # Cleanup
         else:
-            await update.message.reply_text("❌ No tickets found matching your criteria.")
+            await update.message.reply_text("No tickets found for that keyword and date range.")
             
     except Exception as e:
         logger.error(f"Error: {e}")
-        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+        await update.message.reply_text(f"Something went wrong: {str(e)}")
 
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Operation cancelled. Type /start to try again.")
+    await update.message.reply_text("Cancelled. Type /start to try again.")
     return ConversationHandler.END
 
 # --- Helper Wrapper for Blocking Code ---

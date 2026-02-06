@@ -3,12 +3,18 @@ import json
 import logging
 from typing import Dict, Tuple, Optional
 
-# Attempt imports, but don't crash if missing (though we installed them)
+# Prefer new Google GenAI SDK (https://ai.google.dev/gemini-api/docs/quickstart)
 try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
+    from google import genai
+    from google.genai import types as genai_types
+    HAS_GENAI = True
 except ImportError:
-    HAS_GEMINI = False
+    HAS_GENAI = False
+try:
+    import google.generativeai as genai_legacy
+    HAS_GEMINI_LEGACY = True
+except ImportError:
+    HAS_GEMINI_LEGACY = False
 
 try:
     from openai import OpenAI
@@ -25,11 +31,16 @@ class TicketAnalyzer:
         self.mode = "keyword"
         self.model = None
         
-        if GEMINI_API_KEY and HAS_GEMINI:
+        if GEMINI_API_KEY and HAS_GENAI:
             self.mode = "gemini"
-            genai.configure(api_key=GEMINI_API_KEY)
-            self.model_client = genai.GenerativeModel('gemini-1.5-flash')
-            print("AI Processor: Using Google Gemini.")
+            # Client picks up GEMINI_API_KEY from env per quickstart
+            self._genai_client = genai.Client()
+            print("AI Processor: Using Google Gemini (google.genai).")
+        elif GEMINI_API_KEY and HAS_GEMINI_LEGACY:
+            self.mode = "gemini"
+            genai_legacy.configure(api_key=GEMINI_API_KEY)
+            self._genai_legacy_model = genai_legacy.GenerativeModel('gemini-1.5-flash')
+            print("AI Processor: Using Google Gemini (legacy google.generativeai).")
             
         elif OPENAI_API_KEY and HAS_OPENAI:
             self.mode = "openai"
@@ -78,7 +89,6 @@ class TicketAnalyzer:
         return text[:max_chars] + "..." if len(text) > max_chars else text
 
     def _analyze_gemini(self, text: str, intent: str) -> Tuple[bool, str]:
-        # Optimization: Use Gemini 1.5's native JSON mode and System Instructions
         system_instruction = f"""
         You are an intelligent ticket classification agent.
         Your goal is to determine if a customer support ticket matches the user's search intent.
@@ -89,13 +99,6 @@ class TicketAnalyzer:
         1. "relevant": true if the ticket discusses the intent (even vaguely). false if completely unrelated.
         2. "summary": A concise 1-sentence summary of the user's specific problem/request in the ticket.
         """
-        
-        # Configure model with system instruction
-        model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
-            system_instruction=system_instruction
-        )
-        
         prompt = f"""
         Analyze this ticket content:
         ---
@@ -104,14 +107,29 @@ class TicketAnalyzer:
         
         Return JSON only.
         """
-        
         try:
-            # Force JSON response mime type - Gemini Specific Optimization
-            response = model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": "application/json"}
-            )
-            return self._parse_json_response(response.text)
+            if hasattr(self, "_genai_client"):
+                # Google GenAI SDK: https://ai.google.dev/gemini-api/docs/quickstart
+                response = self._genai_client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        response_mime_type="application/json",
+                    ),
+                )
+                return self._parse_json_response(response.text)
+            else:
+                # Legacy google.generativeai
+                model = genai_legacy.GenerativeModel(
+                    model_name="gemini-1.5-flash",
+                    system_instruction=system_instruction,
+                )
+                response = model.generate_content(
+                    prompt,
+                    generation_config={"response_mime_type": "application/json"},
+                )
+                return self._parse_json_response(response.text)
         except Exception as e:
             logger.error(f"Gemini Error: {e}")
             return True, f"AI Error: {str(e)}"

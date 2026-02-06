@@ -105,13 +105,18 @@ class FreshdeskClient:
             stop_after_date=stop_after_date,
         )
 
-        # Filter by keyword
+        # Filter by keyword (supports comma-separated: match if ANY term appears)
         if keyword:
-            kw_lower = keyword.lower()
+            terms = [t.strip().lower() for t in keyword.split(",") if t.strip()]
+            if not terms:
+                terms = [keyword.lower()]
             tickets = [
                 t for t in tickets
-                if kw_lower in (t.get("subject") or "").lower()
-                or kw_lower in (str(t.get("description") or t.get("description_text") or "")).lower()
+                if any(
+                    term in (t.get("subject") or "").lower()
+                    or term in (str(t.get("description") or t.get("description_text") or "")).lower()
+                    for term in terms
+                )
             ]
             print(f"Client-side filter: {len(tickets)} tickets match keyword.")
 
